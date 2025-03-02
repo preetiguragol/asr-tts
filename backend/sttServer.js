@@ -11,7 +11,6 @@ const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 const wss = new WebSocket.Server({ port: 5000 });
 
 wss.on("connection", (ws) => {
-   
     console.log("Client connected");
 
     const connection = deepgram.listen.live({
@@ -20,22 +19,25 @@ wss.on("connection", (ws) => {
         smart_format: true,
         punctuate: true,
         diarize: true,
-        encoding: "linear16",  
-        sample_rate: 48000 
+        encoding: "linear16",
+        sample_rate: 48000,
     });
 
     connection.on(LiveTranscriptionEvents.Open, () => {
         console.log("Deepgram connection opened.");
-        ws.send(JSON.stringify({ status: 'ready' }));
+        ws.send(JSON.stringify({ status: "ready" }));
 
         connection.on(LiveTranscriptionEvents.Transcript, (data) => {
-            console.log("Transcript received");
-            console.log(data.channel.alternatives[0].transcript);
-            ws.send(JSON.stringify({ transcript: data.channel.alternatives[0].transcript }));
+            if (data.channel.alternatives[0].transcript) {
+                const transcriptData = {
+                    transcript: data.channel.alternatives[0].transcript,
+                    channel: data.channel,
+                };
+                ws.send(JSON.stringify(transcriptData));
+            }
         });
 
         connection.on(LiveTranscriptionEvents.Metadata, (data) => {
-            console.log('Metadata received');
             console.log("Deepgram Metadata:", JSON.stringify(data, null, 2));
         });
 
@@ -49,10 +51,8 @@ wss.on("connection", (ws) => {
 
         ws.on("message", (message) => {
             if (message instanceof Buffer && message.length > 0) {
-                // console.log(`Sending ${message.length} bytes to Deepgram.\n`);
                 connection.send(message);
-            } 
-            
+            }
         });
 
         ws.on("close", () => {
@@ -63,4 +63,3 @@ wss.on("connection", (ws) => {
 });
 
 console.log("STT Server running on ws://localhost:5000");
-

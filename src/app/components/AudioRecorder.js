@@ -17,13 +17,15 @@ export default function AudioRecorder() {
 
     const startRecording = async () => {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: {
-                sampleRate: 48000, 
-                channelCount: 1   
-            }});
-            
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    sampleRate: 48000,
+                    channelCount: 1,
+                },
+            });
+
             socketRef.current = new WebSocket("ws://localhost:5000");
-            socketRef.current.binaryType = "arraybuffer"; 
+            socketRef.current.binaryType = "arraybuffer";
 
             audioContextRef.current = new AudioContext({ sampleRate: 48000 });
             sourceRef.current = audioContextRef.current.createMediaStreamSource(stream);
@@ -34,20 +36,24 @@ export default function AudioRecorder() {
 
             socketRef.current.onmessage = (event) => {
                 const data = JSON.parse(event.data);
-                if (data.status === 'ready') {
+                if (data.status === "ready") {
                     console.log("Server ready - sending audio");
                 } else if (data.transcript) {
-                    setTranscript(prev => [...prev, data.transcript]);
+                    const speakerIndex = data.channel?.alternatives[0]?.words?.[0]?.speaker;
+                    const speaker = speakerIndex +1 ; // Start from 1
+                    setTranscript((prev) => [
+                        ...prev,
+                        { speaker: `Speaker ${speaker}`, text: data.channel.alternatives[0].transcript },
+                    ]);
                 }
             };
 
             processorRef.current.onaudioprocess = (e) => {
                 if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
-                
+
                 const pcmData = convertFloat32ToInt16(e.inputBuffer.getChannelData(0));
                 socketRef.current.send(pcmData);
             };
-
         } catch (error) {
             console.error("Error accessing microphone:", error);
         }
@@ -57,8 +63,12 @@ export default function AudioRecorder() {
         if (processorRef.current) {
             processorRef.current.disconnect();
             sourceRef.current?.disconnect();
-            audioContextRef.current?.close();
         }
+
+        if (audioContextRef.current && audioContextRef.current.state !== "closed") {
+            audioContextRef.current.close();
+        }
+
         if (socketRef.current) {
             socketRef.current.close();
             console.log("WebSocket closed");
@@ -75,11 +85,20 @@ export default function AudioRecorder() {
 
     return (
         <div className="p-4">
-            <button onClick={() => setRecording(!recording)} className="bg-blue-500 text-white p-2 rounded">
+            <button
+                onClick={() => setRecording(!recording)}
+                className="bg-blue-500 text-white p-2 rounded"
+            >
                 {recording ? "Stop Recording" : "Start Recording"}
             </button>
-            <h3>Transcript:</h3>
-            <pre>{JSON.stringify(transcript, null, 2)}</pre>
+            <h3 className="mt-4">Transcript:</h3>
+            <div className="space-y-2">
+                {transcript.map((entry, index) => (
+                    <div key={index} className="p-2 rounded bg-gray-100">
+                        <strong className="text-blue-600">{entry.speaker}:</strong> {entry.text}
+                    </div>
+                ))}
+            </div>
         </div>
     );
 }
