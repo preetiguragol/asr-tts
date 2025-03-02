@@ -1,4 +1,15 @@
 
+# ASR using Deepgram
+
+This is a Next.js app that records audio via microphone, streams it to Deepgram for real-time transcription with speaker diarization, and saves both the audio and transcripts in CSV format for analysis and can generate a quality report.
+
+## Features
+
+- Live Audio Recording: Record audio directly from the browser.
+- Real-time Transcription: Uses Deepgram API for accurate and fast transcription with speaker diarization.
+- CSV Export: Saves transcripts in a CSV file with speaker labels and timestamps.
+- Quality Report: Generates a JSON report with transcription stats and timing info.
+
 ## Installation
 
 Clone the repository :
