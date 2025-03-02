@@ -1,0 +1,8 @@
+{
+  "total_transcriptions": 64,
+  "total_stt_audio_files": 2,
+  "first_audio_timestamp": "2025-03-02T05:31:06.354Z",
+  "first_transcript_timestamp": "2025-03-02T05:31:06.914Z",
+  "time_to_first_response": "0.56s",
+  "report_generated_at": "2025-03-02T05:32:08.680Z"
+}

@@ -8,6 +8,7 @@ export default function AudioRecorder() {
     const audioContextRef = useRef(null);
     const sourceRef = useRef(null);
     const processorRef = useRef(null);
+    const audioChunksRef = useRef([]);
 
     useEffect(() => {
         if (recording) startRecording();
@@ -27,6 +28,15 @@ export default function AudioRecorder() {
             socketRef.current = new WebSocket("ws://localhost:5000");
             socketRef.current.binaryType = "arraybuffer";
 
+            // WebSocket Keep-Alive: Ping every 30 seconds
+            const heartbeat = setInterval(() => {
+                if (socketRef.current?.readyState === WebSocket.OPEN) {
+                    socketRef.current.send(JSON.stringify({ type: "ping" }));
+                }
+            }, 30000);
+
+            socketRef.current.onclose = () => clearInterval(heartbeat);
+
             audioContextRef.current = new AudioContext({ sampleRate: 48000 });
             sourceRef.current = audioContextRef.current.createMediaStreamSource(stream);
             processorRef.current = audioContextRef.current.createScriptProcessor(4096, 1, 1);
@@ -40,7 +50,7 @@ export default function AudioRecorder() {
                     console.log("Server ready - sending audio");
                 } else if (data.transcript) {
                     const speakerIndex = data.channel?.alternatives[0]?.words?.[0]?.speaker;
-                    const speaker = speakerIndex +1 ; // Start from 1
+                    const speaker = speakerIndex + 1;
                     setTranscript((prev) => [
                         ...prev,
                         { speaker: `Speaker ${speaker}`, text: data.channel.alternatives[0].transcript },
@@ -52,6 +62,7 @@ export default function AudioRecorder() {
                 if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
 
                 const pcmData = convertFloat32ToInt16(e.inputBuffer.getChannelData(0));
+                audioChunksRef.current.push(pcmData);
                 socketRef.current.send(pcmData);
             };
         } catch (error) {
@@ -72,6 +83,15 @@ export default function AudioRecorder() {
         if (socketRef.current) {
             socketRef.current.close();
             console.log("WebSocket closed");
+        }
+
+       
+        if (audioChunksRef.current.length > 0) {
+            fetch("/api/save-audio", {
+                method: "POST",
+                body: JSON.stringify(audioChunksRef.current),
+            });
+            audioChunksRef.current = [];
         }
     };
 

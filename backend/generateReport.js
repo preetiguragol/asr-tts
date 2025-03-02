@@ -5,6 +5,7 @@ const fs = require("fs");
 const path = require("path");
 const wav = require("wav");
 
+// Check for Deepgram API Key
 if (!process.env.DEEPGRAM_API_KEY) {
     console.error("ERROR: Deepgram API Key is missing!");
     process.exit(1);
@@ -73,13 +74,13 @@ wss.on("connection", (ws) => {
             )
             .join("\n");
 
-        // Create CSV file if not exists and add header
+      
         const header = `Speaker,Start,End,Word\n`;
         if (!fs.existsSync(csvPath)) {
             fs.writeFileSync(csvPath, header);
         }
 
-        // Append new transcript to the CSV file
+     
         fs.appendFileSync(csvPath, `${csvContent}\n`);
         console.log(`Transcript appended to ${csvPath}`);
 
@@ -93,7 +94,7 @@ wss.on("connection", (ws) => {
     ws.on("message", (message) => {
         if (message instanceof Buffer && message.length > 0) {
             connection.send(message);
-            writer.write(message); // Save audio to file
+            writer.write(message); 
         }
     });
 
@@ -105,3 +106,63 @@ wss.on("connection", (ws) => {
 });
 
 console.log("STT Server running on ws://localhost:5000");
+
+
+const transcriptsPath = path.resolve(__dirname, "../public/transcript/transcripts.csv");
+const sttAudioDir = path.resolve(__dirname, "../public/audio");
+const reportPath = path.resolve(__dirname, "../qualityReport.json");
+
+function getEarliestFileTime(dir) {
+    const files = fs.readdirSync(dir);
+    if (files.length === 0) return null;
+
+    return files
+        .map((file) => ({
+            file,
+            time: fs.statSync(path.join(dir, file)).birthtime
+        }))
+        .sort((a, b) => a.time - b.time)[0].time;
+}
+
+function getFirstTranscriptTime(firstAudioTime) {
+    if (!fs.existsSync(transcriptsPath)) return null;
+    if (!firstAudioTime) return null;  
+
+    const lines = fs.readFileSync(transcriptsPath, "utf-8").split("\n").filter(Boolean);
+    if (lines.length <= 1) return null;  
+
+
+    const firstLine = lines[1].split(",");
+    const startTime = parseFloat(firstLine[1]) * 1000;  
+
+   
+    const realTimestamp = new Date(firstAudioTime.getTime() + startTime);
+    return realTimestamp;
+}
+
+function generateReport() {
+    const transcripts = fs.existsSync(transcriptsPath)
+        ? fs.readFileSync(transcriptsPath, "utf-8").split("\n").filter(Boolean).length - 1  // Exclude header
+        : 0;
+    const audioFiles = fs.existsSync(sttAudioDir) ? fs.readdirSync(sttAudioDir).length : 0;
+
+    const firstAudioTime = getEarliestFileTime(sttAudioDir);
+    const firstTranscriptTime = getFirstTranscriptTime(firstAudioTime);
+
+    const timeToFirstResponse = firstAudioTime && firstTranscriptTime
+        ? `${(firstTranscriptTime - firstAudioTime) / 1000}s`  
+        : "N/A";
+
+    return {
+        total_transcriptions: transcripts,
+        total_stt_audio_files: audioFiles,
+        first_audio_timestamp: firstAudioTime?.toISOString() || "N/A",
+        first_transcript_timestamp: firstTranscriptTime?.toISOString() || "N/A",
+        time_to_first_response: timeToFirstResponse,
+        report_generated_at: new Date().toISOString()
+    };
+}
+
+// Write report to JSON file
+fs.writeFileSync(reportPath, JSON.stringify(generateReport(), null, 2));
+console.log("✅ Quality report generated at:", reportPath);
