@@ -11,6 +11,7 @@ const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
 const wss = new WebSocket.Server({ port: 5000 });
 
 wss.on("connection", (ws) => {
+   
     console.log("Client connected");
 
     const connection = deepgram.listen.live({
@@ -25,43 +26,41 @@ wss.on("connection", (ws) => {
 
     connection.on(LiveTranscriptionEvents.Open, () => {
         console.log("Deepgram connection opened.");
-    });
+        ws.send(JSON.stringify({ status: 'ready' }));
 
-    connection.on(LiveTranscriptionEvents.Transcript, (data) => {
-        console.log("Transcript Event Triggered:", JSON.stringify(data, null, 2));  
+        connection.on(LiveTranscriptionEvents.Transcript, (data) => {
+            console.log("Transcript received");
+            console.log(data.channel.alternatives[0].transcript);
+            ws.send(JSON.stringify({ transcript: data.channel.alternatives[0].transcript }));
+        });
 
-        const transcript = data.channel.alternatives[0]?.transcript;
-        if (transcript && transcript.trim().length > 0) {
-            console.log("Received Transcript:", transcript);
-            ws.send(JSON.stringify({ transcript })); 
-        }
-    });
+        connection.on(LiveTranscriptionEvents.Metadata, (data) => {
+            console.log('Metadata received');
+            console.log("Deepgram Metadata:", JSON.stringify(data, null, 2));
+        });
 
-    connection.on(LiveTranscriptionEvents.Metadata, (data) => {
-        console.log("Deepgram Metadata:", JSON.stringify(data, null, 2));
-    });
+        connection.on(LiveTranscriptionEvents.Close, () => {
+            console.log("Deepgram connection closed.");
+        });
 
-    connection.on(LiveTranscriptionEvents.Close, () => {
-        console.log(" Deepgram connection closed.");
-    });
+        connection.on(LiveTranscriptionEvents.Error, (err) => {
+            console.error("Deepgram Error:", err.message);
+        });
 
-    connection.on(LiveTranscriptionEvents.Error, (err) => {
-        console.error("Deepgram Error:", err);
-    });
+        ws.on("message", (message) => {
+            if (message instanceof Buffer && message.length > 0) {
+                // console.log(`Sending ${message.length} bytes to Deepgram.\n`);
+                connection.send(message);
+            } 
+            
+        });
 
-    ws.on("message", (message) => {
-        if (message.length > 500) {  
-            console.log(`Sending ${message.length} bytes to Deepgram...`);
-            connection.send(message);
-        } else {
-            console.warn("Ignoring empty audio chunk!");
-        }
-    });
-
-    ws.on("close", () => {
-        console.log("Client disconnected");
-        connection.finish();
+        ws.on("close", () => {
+            console.log("Client disconnected");
+            connection.finish();
+        });
     });
 });
 
-console.log(" STT Server running on ws://localhost:5000");
+console.log("STT Server running on ws://localhost:5000");
+
