@@ -5,60 +5,72 @@ export default function AudioRecorder() {
     const [recording, setRecording] = useState(false);
     const [transcript, setTranscript] = useState([]);
     const socketRef = useRef(null);
-    const mediaRecorderRef = useRef(null);
+    const audioContextRef = useRef(null);
+    const sourceRef = useRef(null);
+    const processorRef = useRef(null);
 
     useEffect(() => {
-        if (recording) {
-            startRecording();
-        } else {
-            stopRecording();
-        }
-
-        return () => stopRecording(); // Cleanup on unmount
+        if (recording) startRecording();
+        else stopRecording();
+        return () => stopRecording();
     }, [recording]);
 
     const startRecording = async () => {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
-
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: {
+                sampleRate: 48000, 
+                channelCount: 1   
+            }});
+            
             socketRef.current = new WebSocket("ws://localhost:5000");
+            socketRef.current.binaryType = "arraybuffer"; 
 
-            socketRef.current.onopen = () => console.log(" Connected to WebSocket");
-            socketRef.current.onerror = (error) => console.error("WebSocket Error:", error);
+            audioContextRef.current = new AudioContext({ sampleRate: 48000 });
+            sourceRef.current = audioContextRef.current.createMediaStreamSource(stream);
+            processorRef.current = audioContextRef.current.createScriptProcessor(4096, 1, 1);
+
+            sourceRef.current.connect(processorRef.current);
+            processorRef.current.connect(audioContextRef.current.destination);
 
             socketRef.current.onmessage = (event) => {
                 const data = JSON.parse(event.data);
-                if (data.transcript && data.transcript.trim().length > 0) {
-                    console.log("Received Transcript:", data.transcript); 
-                    setTranscript((prev) => [...prev, data.transcript]);
+                if (data.status === 'ready') {
+                    console.log("Server ready - sending audio");
+                } else if (data.transcript) {
+                    setTranscript(prev => [...prev, data.transcript]);
                 }
             };
 
-            mediaRecorderRef.current.ondataavailable = async (event) => {
-                if (event.data.size > 500) {  // ✅ Prevent sending silent chunks
-                    socketRef.current?.send(event.data);
-                    console.log("Sent audio chunk to server, size:", event.data.size);
-                } else {
-                    console.warn("Ignoring empty audio chunk!");
-                }
+            processorRef.current.onaudioprocess = (e) => {
+                if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
+                
+                const pcmData = convertFloat32ToInt16(e.inputBuffer.getChannelData(0));
+                socketRef.current.send(pcmData);
             };
 
-            mediaRecorderRef.current.start(1000); // Record in 1-second chunks
         } catch (error) {
-            console.error(" Error accessing microphone:", error);
+            console.error("Error accessing microphone:", error);
         }
     };
 
     const stopRecording = () => {
-        mediaRecorderRef.current?.stop();
-
-        if (socketRef.current) {
-            setTimeout(() => {
-                socketRef.current?.close();
-                console.log(" Closed WebSocket after delay");
-            }, 5000);
+        if (processorRef.current) {
+            processorRef.current.disconnect();
+            sourceRef.current?.disconnect();
+            audioContextRef.current?.close();
         }
+        if (socketRef.current) {
+            socketRef.current.close();
+            console.log("WebSocket closed");
+        }
+    };
+
+    const convertFloat32ToInt16 = (buffer) => {
+        const int16Buffer = new Int16Array(buffer.length);
+        for (let i = 0; i < buffer.length; i++) {
+            int16Buffer[i] = Math.min(1, buffer[i]) * 32767;
+        }
+        return int16Buffer;
     };
 
     return (
